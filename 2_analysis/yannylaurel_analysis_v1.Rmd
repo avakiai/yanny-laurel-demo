@@ -1,0 +1,186 @@
+---
+title: "Yanny-Laurel Analysis"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+---
+
+Hello!
+
+Let's get started. First, set working directory to where this file is by going to the 'Session' tab, then 'Set Workspace Directory' > 'To Source File Location'.
+
+Something like this should show up in your console: `setwd("[wherever you saved the repository]/yanny-laurel-demo/2_analysis")`
+
+We like to use relative paths instead of absolute paths. Absolute paths are directories
+that are specific to your computer. For example, this file is located on my computer
+by the following path: `setwd("D:/GitRepos/yanny-laurel-demo/2_analysis")`
+
+But if I put that in the code, then it would fail when you try to run it because that
+path probably does not exist on your computer. 
+
+A much better (i.e. more reproducible and resilient) way of coding is to organize
+your project so that you or anyone else can simply set the working directory to the
+folder where the analysis scripts are (or the main folder of the directory), and 
+"access" everything else from there. 
+
+So what would this look like? 
+Like so: 
+```{r}
+# set working directory to source file location
+data_path = file.path('../data') 
+results_path = file.path('../3_results')
+stim_path = file.path('../stim')
+# the '.' means "working directory"
+# the '/' means go down one folder level
+# the '../' means go up one folder level
+
+```
+So since we are setting the working directory to this file, we have to go up one
+level (to the main folder), then down to access the 'data' and 'results' folders. 
+
+### Load Packages
+```{r}
+library(tidyverse)
+
+## For visualizing sound
+library(tuneR)
+```
+
+## Preprocessing
+
+### Load Data
+Now let's load and inspect the data...
+```{r}
+# first let's check to make sure we're in the right place:
+(file <- list.files(data_path))
+# now load
+data_orig <- read.csv(file.path(data_path,file))
+```
+You'll notice we cannot immediately start analyzing this data.
+There's information that's redundant (like the OS) and the automatically generated variable
+names are not really useful or informative. 
+
+Once we have an idea what these mean, and we decide what variables we want to keep, we can 
+"wrangle" the data to get it into the format we need. 
+
+### Wrangle Data
+Note that you almost certainly will have to do data wrangling several times in the course
+of an analysis, as different visualization and statistical methods require different formats
+for the data. 
+
+Let's start by cleaning up the data a bit, knowing a few things about our experiment:
+
+1. We know that the slider used to get responses (called `report`) in each trial
+shows up 0.2 seconds after trial start, but the audio stimulus is played 0.5 s after start. 
+Since the reaction time on the `report` is calculated relative to the start of that 
+component, we have to subtract 0.3 from the reaction time to get a meaningful reaction
+time - one that is relative to the onset of the auditory stimulus.
+
+2. In Python, indexing starts at 0 (e.g. the first element of a list is element `0`, then `1`, etc.) so you might want to re-number trial values to be a bit more intuitive. 
+
+3. Our slider had been programmed to have two "tick marks," 1 = "Laurel" and 2 = "Yanny."
+Since we want to get the proportion of "Yanny" responses, we should rescale the responses so that
+0 = "Laurel" and 1 = "Yanny". Then, a simple mean over trials would give us the % of trials 
+on which participants heard "Yanny."
+
+```{r}
+data <- data_orig %>% dplyr::rename(music_yrs = years.musical.experience, # rename variables
+                                    resp = ï..report.response,
+                                    RT = report.rt,
+                                    trial_rep_n = trials.thisRepN,
+                                    trial_n = trials.thisN,
+                                    stim_idx = trials.thisIndex,
+                                    stim = audio) %>%
+                      # pick which vars to keep, and in which order
+                      dplyr::select(participant, sex, age, music_yrs, trial_n, 
+                                    stim, stim_idx, trial_rep_n, resp, RT) %>%
+                      # get data into format we'd like
+                      dplyr::mutate(trial_n = trial_n+1, # rescale to adjust for Python indexing
+                                    stim_idx = stim_idx+1,
+                                    trial_rep_n = trial_rep_n+1,
+                                    resp = round(resp)-1, # convert 1,2 responses to 0,1
+                                    RT = RT-0.3) %>% # adjust for trial timing
+                      na.omit() # see also dplyr::complete.cases
+
+data
+```
+
+
+#### Calculate Proportion Yanny
+```{r}
+prop_data <- data %>% dplyr::group_by(participant, stim_idx) %>% 
+                      dplyr::summarise(prop_yanny = mean(resp),
+                                       mean_RT = mean(RT),
+                                       sd = sd(RT)) %>%
+        mutate(dB_ratio = c(-60,-48,-36,-24,-12,0,12,24,36,48,60), .before = prop_yanny)
+
+prop_data <- prop_data %>% mutate(dB_ratio = as.factor(dB_ratio),
+                                  stim_idx = as.factor(stim_idx),
+                                  participant = as.factor(participant))
+
+prop_data
+```
+## Plot
+### Plot Proportions
+```{r warning=FALSE}
+ggplot(data = prop_data, mapping = aes(dB_ratio, prop_yanny)) +
+  geom_point() + 
+  geom_line(method = "glm", family = "binomial", se = FALSE, mapping = aes(group = 1)) + 
+  scale_y_continuous(name = "Prop. 'Yanny'", limits = c(0,1)) +
+  scale_x_discrete(name = "High/low ratio (dB)") + 
+  theme_light()
+```
+
+## Statistics
+### Summary Statistics
+
+
+### Logistic Regression
+
+
+## Visualizations
+Let's take a closer look at the stimuli themselves. They have been filtered in order to bias
+perception towards one or the other interpretation. Can we see this in a spectrogram or a 
+spectrum representation?
+
+Load Data:
+```{r}
+# view directory of stim
+(stims = list.files(stim_path))
+
+# let's get three representative examples: the most extreme Yanny/Laurel sounds, and
+# the original
+stim_eg <- list(laurel = tuneR::readWave(file.path(stim_path,stims[1])),
+               original = tuneR::readWave(file.path(stim_path,stims[8])),
+               yanny = tuneR::readWave(file.path(stim_path,stims[3])))
+```
+
+Visualize Spectra & Spectrograms:
+```{r}
+seewave::spec(stim_eg$yanny)
+seewave::spectro(stim_eg$yanny, flim = c(0,10))
+
+seewave::spec(stim_eg$laurel)
+seewave::spectro(stim_eg$laurel, flim = c(0,10))
+
+seewave::spec(stim_eg$original)
+seewave::spectro(stim_eg$original, flim = c(0,10))
+```
+
+## Conclusion
+Overall...
+

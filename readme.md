@@ -18,3 +18,6 @@ You can do the experiment yourself (and get your data downloaded immediately upo
 
 
 Authors: Ava Kiai & Team 6
+
+
+Credits: Audio files from @Daniel Pressnitzer.
