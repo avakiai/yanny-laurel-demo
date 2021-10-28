@@ -3,6 +3,10 @@ title: "Yanny-Laurel Analysis"
 output: html_notebook
 ---
 
+# Demo Experiment Analysis
+
+## Getting Start: R Markdown
+
 This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
@@ -19,15 +23,20 @@ The preview shows you a rendered HTML copy of the contents of the editor. Conseq
 
 ---
 
+## 1a. Setup
 Hello!
 
-Let's get started. First, set working directory to where this file is by going to the 'Session' tab, then 'Set Workspace Directory' > 'To Source File Location'.
+Let's get started. You should have downloaded the Yanny/Laurel demo repository from Github, but if not you can do so now via [this link](https://github.com/avakiai/yanny-laurel-demo). 
+Save it someplace convenient. 
+If you already have the repository downloaded, you can make sure you have this up-to-date file; you can either do this by downloading this individual script as well as the file ```helper_functions.R``` from the ```2_analysis``` folder, or using git (if you are familiar with it, otherwise no stress!).
 
-Something like this should show up in your console: `setwd("[wherever you saved the repository]/yanny-laurel-demo/2_analysis")`
+First, set working directory to where this file is by going to the ```Session``` tab, then ```Set Workspace Directory > To Source File Location```.
+
+Something like this should show up in your console: ```setwd("[wherever you saved the repository]/yanny-laurel-demo/2_analysis")```
 
 We like to use relative paths instead of absolute paths. Absolute paths are directories
 that are specific to your computer. For example, this file is located on my computer
-by the following path: `setwd("D:/GitRepos/yanny-laurel-demo/2_analysis")`
+by the following path: ```setwd("~/Repos/yanny-laurel-demo/2_analysis")```
 
 But if I put that in the code, then it would fail when you try to run it because that
 path probably does not exist on your computer. 
@@ -37,6 +46,9 @@ your project so that you or anyone else can simply set the working directory to 
 folder where the analysis scripts are (or the main folder of the directory), and 
 "access" everything else from there. 
 
+**Note**: You can simply run the following chunks of code up to [Section 2](## 2. Exploring the data), where the interactive part starts. 
+
+### Set paths
 So what would this look like? 
 Like so: 
 ```{r}
@@ -52,24 +64,36 @@ stim_path = file.path('../stim')
 So since we are setting the working directory to this file, we have to go up one
 level (to the main folder), then down to access the 'data' and 'results' folders. 
 
-### Load Packages
-```{r}
+### Load Packages & Functions
+```{r warning=FALSE}
 library(tidyverse)
-
-## For visualizing sound
-library(tuneR)
+# Helper functions
+source('./helper_functions.R')
 ```
-
-## Preprocessing
 
 ### Load Data
 Now let's load and inspect the data...
 ```{r}
 # first let's check to make sure we're in the right place:
-(file <- list.files(data_path))
+(files <- list.files(data_path, pattern = ".csv"))
+
+# Note that putting () around a command will cause it to print the result directly to the console. If you assign a variable without using (), it will silently perform the assignment, and you'd have to run the variable itself to see its contents in the console. You don't need () if you are just running a command without assigning it to anything. 
+
 # now load
-data_orig <- read.csv(file.path(data_path,file))
+data_raw <- data.frame() 
+# add blocking
+for (f in files) {
+  incoming <- read.csv(file.path(data_path, f))
+    breaks <- which(!is.na(incoming$block.thisRepN))
+    bks <- length(breaks)
+    ns <- c(breaks[1],diff(breaks))-1
+  cleaned <- incoming[!is.na(incoming$report.response),]  
+  cleaned$block <- rep_block(bks,ns)
+  data_raw <- rbind(data_raw,cleaned) 
+}
+# data_raw
 ```
+
 You'll notice we cannot immediately start analyzing this data.
 There's information that's redundant (like the OS) and the automatically generated variable
 names are not really useful or informative. 
@@ -77,7 +101,7 @@ names are not really useful or informative.
 Once we have an idea what these mean, and we decide what variables we want to keep, we can 
 "wrangle" the data to get it into the format we need. 
 
-### Wrangle Data
+## 1b. Wrangle Data
 Note that you almost certainly will have to do data wrangling several times in the course
 of an analysis, as different visualization and statistical methods require different formats
 for the data. 
@@ -98,89 +122,184 @@ Since we want to get the proportion of "Yanny" responses, we should rescale the 
 on which participants heard "Yanny."
 
 ```{r}
-data <- data_orig %>% dplyr::rename(music_yrs = years.musical.experience, # rename variables
-                                    resp = ï..report.response,
-                                    RT = report.rt,
-                                    trial_rep_n = trials.thisRepN,
-                                    trial_n = trials.thisN,
-                                    stim_idx = trials.thisIndex,
-                                    stim = audio) %>%
+data_orig <- data_raw %>% dplyr::rename(music_yrs = years.musical.experience, # rename variables
+                                    resp = report.response, # whether they responded yanny (2) or laurel (1)
+                                    RT = report.rt, # reaction time
+                                    trial_rep_n = trials.thisRepN, # whether its the 1st or 2nd time this token
+                                                                   # was played in this block
+                                    trial_n = trials.thisN, # occurence in the block
+                                    stim_idx = trials.thisIndex, # stimulus identifier
+                                    stim = audio) %>% # stimulus filename
                       # pick which vars to keep, and in which order
-                      dplyr::select(participant, sex, age, music_yrs, trial_n, 
-                                    stim, stim_idx, trial_rep_n, resp, RT) %>%
+                      dplyr::select(participant, sex, age, music_yrs, # pariticpant variables
+                                    block, trial_n, stim, stim_idx, trial_rep_n, # independent variables
+                                    resp, RT) %>% # dependent variables
                       # get data into format we'd like
                       dplyr::mutate(trial_n = trial_n+1, # rescale to adjust for Python indexing
                                     stim_idx = stim_idx+1,
                                     trial_rep_n = trial_rep_n+1,
                                     resp = round(resp)-1, # convert 1,2 responses to 0,1
                                     RT = RT-0.3) %>% # adjust for trial timing
-                      na.omit() # see also dplyr::complete.cases
+                      dplyr::mutate(participant = as.factor(participant), # code as categorical variables
+                                    sex = as.factor(sex))
+# make sure you have complete data for all observations
+nrow(data_orig)      
+nrow(data_orig %>% na.omit()) # see also dplyr::complete.cases
 
-data
+data <- data_orig # make a copy
+# data
+#data$participant %>% unique()
 ```
 
 
-#### Calculate Proportion Yanny
+## 2. Exploring the data
+
+Use ```summary`` to get an overview of the data and variables...
 ```{r}
+???(data)
+```
+What are we looking at here? Let's explore some of these variables...
+
+First let's look at the participant variables. What is the demographic breakdown of our dataset? 
+```{r}
+???(data$age) 
+
+???(data$sex)
+```
+Here, it's counting up all the observations. How can we get it to count only the unique occurences?
+
+```{r}
+???(data$age)
+
+```
+
+Okay, let's move on to our IV & DV's. We're going to focus on the proportion of trials in which participants responded 'Yanny'.
+
+```{r}
+???(data$resp)
+```
+What we actually want to know is how people's responses varied based on the level of acoustic manipulation, indexed by ```stim_idx```. We also want a summary based on each participant. So: 
+
+#### Calculate Proportion Yanny
+```{r warning=FALSE}
 prop_data <- data %>% dplyr::group_by(participant, stim_idx) %>% 
                       dplyr::summarise(prop_yanny = mean(resp),
                                        mean_RT = mean(RT),
                                        sd = sd(RT)) %>%
         mutate(dB_ratio = c(-60,-48,-36,-24,-12,0,12,24,36,48,60), .before = prop_yanny)
 
-prop_data <- prop_data %>% mutate(dB_ratio = as.factor(dB_ratio),
-                                  stim_idx = as.factor(stim_idx),
-                                  participant = as.factor(participant))
-
 prop_data
 ```
-## Plot
-### Plot Proportions
+
+Plot... 
 ```{r warning=FALSE}
-ggplot(data = prop_data, mapping = aes(dB_ratio, prop_yanny)) +
+ggplot(data = prop_data, mapping = aes(dB_ratio, prop_yanny, color = participant)) +
   geom_point() + 
-  geom_line(method = "glm", family = "binomial", se = FALSE, mapping = aes(group = 1)) + 
+  geom_line(mapping = aes(group = participant)) + 
   scale_y_continuous(name = "Prop. 'Yanny'", limits = c(0,1)) +
   scale_x_discrete(name = "High/low ratio (dB)") + 
-  theme_light()
+  theme_classic()
 ```
 
-## Statistics
+## 3. Inferential & Summary Statistics
 ### Summary Statistics
+
+```{r}
+aggregate(resp~stim_idx,data=data, FUN=mean)
+
+aggregate(prop_yanny~dB_ratio,data=prop_data, FUN=mean)
+
+```
+
+```{r}
+group_means <- aggregate(prop_yanny~dB_ratio,data=prop_data, FUN=mean)
+
+ggplot(data = prop_data, mapping = aes(dB_ratio, prop_yanny, color = participant)) +
+  geom_point() + 
+  geom_line(mapping = aes(group = participant)) + 
+  geom_line(data = group_means, aes(dB_ratio, prop_yanny, group = 1), color = "black", size = 2) + 
+  scale_y_continuous(name = "Prop. 'Yanny'", limits = c(0,1)) +
+  scale_x_discrete(name = "High/low ratio (dB)") + 
+  theme_classic()
+```
+
+```{r message=FALSE, warning=FALSE}
+prop_data_demog <- data %>% dplyr::group_by(participant, sex, age, music_yrs, stim_idx) %>% 
+                      dplyr::summarise(prop_yanny = mean(resp),
+                                       mean_RT = mean(RT),
+                                       sd = sd(RT)) %>%
+        mutate(dB_ratio = c(-60,-48,-36,-24,-12,0,12,24,36,48,60), .before = prop_yanny)
+```
+
+
+```{r}
+aggregate(prop_yanny~dB_ratio+age, data = prop_data_demog, FUN = mean) %>%
+  
+ggplot(mapping = aes(dB_ratio, prop_yanny, color = age)) +
+  geom_point() + 
+  geom_line(mapping = aes(group = age)) +  
+  scale_y_continuous(name = "Prop. 'Yanny'", limits = c(0,1)) +
+  scale_x_discrete(name = "High/low ratio (dB)") + 
+  theme_classic()
+```
 
 
 ### Logistic Regression
+We are interested in the effects of the dB ratio level on perception of Yanny/Laurel...
 
-
-## Visualizations
-Let's take a closer look at the stimuli themselves. They have been filtered in order to bias
-perception towards one or the other interpretation. Can we see this in a spectrogram or a 
-spectrum representation?
-
-Load Data:
 ```{r}
-# view directory of stim
-(stims = list.files(stim_path))
+model <- glm(resp ~ stim_idx + age + sex + music_yrs, family = binomial(link='logit'), data = data)
+summary(model)
+```
+The logistic regression coefficients give the change in the log odds of the outcome for a one unit increase in the predictor variable.
+* For every one unit change in the dB ratio, the log odds of hearing Yanny (versus Laurel) increases by 1.09.
+* For a one unit increase in gpa, the log odds of being admitted to graduate school increases by 0.804.
 
-# let's get three representative examples: the most extreme Yanny/Laurel sounds, and
-# the original
-stim_eg <- list(laurel = tuneR::readWave(file.path(stim_path,stims[1])),
-               original = tuneR::readWave(file.path(stim_path,stims[8])),
-               yanny = tuneR::readWave(file.path(stim_path,stims[3])))
+Confience Intervals
+
+```{r}
+confint(model)
+
 ```
 
-Visualize Spectra & Spectrograms:
 ```{r}
-seewave::spec(stim_eg$yanny)
-seewave::spectro(stim_eg$yanny, flim = c(0,10))
-
-seewave::spec(stim_eg$laurel)
-seewave::spectro(stim_eg$laurel, flim = c(0,10))
-
-seewave::spec(stim_eg$original)
-seewave::spectro(stim_eg$original, flim = c(0,10))
+anova(model, test="Chisq")
 ```
 
-## Conclusion
-Overall...
+```{r}
+# fetch coefficient
+# coef(model)
+# odds ratio
+exp(coef(model))
+
+exp(cbind(odd_ratio = coef(model), confint(model)))
+```
+Now we can say that for a one unit increase in the stimulus, the odds of hearing Yanny increase by a factor of about 3. Note that the odds ratio for the intercept is not generally interpreted.
+
+Note! Mathematically, probability and odds ratio are two different things. Probability is the likelihood that an event will occur. Odds ratio is the likelihood that an event will occur in relation to the likelihood that an event will not occur: 
+
+$odds = p(event)/ p(!event)$
+
+That means than an odds ratio > 1 indicates an increased likelihood of the event occuring, while an OR < 1 indicates a decreased likelihood. 
+
+Take a look again at the table we generated above. How would you read this in plain language?
+
+
+
+### Writing it up... 
+There's no clear format for reporting the results of a logistic regression in APA format (as far as I know), but most often you will see people report the odds ratios, CIs, and 
+
+The results of the binomial logistic regression indicated that there was a significant association between the factors dB ratio, age, sex, and years of musical training and the probability of hearing "Yanny" over "Laurel". The odds... 
+
+
+
+
+## 4. Analyzing RT
+
+Now try it on your own by analyzing how ```RT``` changes as ```dB_ratio``` varies. Remember to:
+
+1. aggregate the data
+2. plot the data
+3. build a linear model 
+
 
