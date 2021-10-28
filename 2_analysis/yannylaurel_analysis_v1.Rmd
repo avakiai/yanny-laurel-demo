@@ -1,6 +1,8 @@
 ---
 title: "Yanny-Laurel Analysis"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 # Demo Experiment Analysis
@@ -47,6 +49,8 @@ folder where the analysis scripts are (or the main folder of the directory), and
 "access" everything else from there. 
 
 **Note**: You can simply run the following chunks of code up to [Section 2](## 2. Exploring the data), where the interactive part starts. 
+
+Code where you have to fill in some parts to run it are commented out, uncomment them first and then proceed! :)
 
 ### Set paths
 So what would this look like? 
@@ -146,7 +150,8 @@ data_orig <- data_raw %>% dplyr::rename(music_yrs = years.musical.experience, # 
 nrow(data_orig)      
 nrow(data_orig %>% na.omit()) # see also dplyr::complete.cases
 
-data <- data_orig # make a copy
+data <- data_orig %>%
+  dplyr::mutate(dB_ratio = ordered(stim_idx, labels = c(-60,-48,-36,-24,-12,0,12,24,36,48,60))) # make a copy
 # data
 #data$participant %>% unique()
 ```
@@ -156,38 +161,36 @@ data <- data_orig # make a copy
 
 Use ```summary`` to get an overview of the data and variables...
 ```{r}
-???(data)
+#???(data)
 ```
 What are we looking at here? Let's explore some of these variables...
 
 First let's look at the participant variables. What is the demographic breakdown of our dataset? 
 ```{r}
-???(data$age) 
+#???(data$age) 
 
-???(data$sex)
+#???(data$sex)
 ```
 Here, it's counting up all the observations. How can we get it to count only the unique occurences?
 
 ```{r}
-???(data$age)
+#???(data$age)
 
 ```
 
 Okay, let's move on to our IV & DV's. We're going to focus on the proportion of trials in which participants responded 'Yanny'.
 
 ```{r}
-???(data$resp)
+#???(data$resp)
 ```
 What we actually want to know is how people's responses varied based on the level of acoustic manipulation, indexed by ```stim_idx```. We also want a summary based on each participant. So: 
 
 #### Calculate Proportion Yanny
-```{r warning=FALSE}
-prop_data <- data %>% dplyr::group_by(participant, stim_idx) %>% 
+```{r message=FALSE, warning=FALSE}
+prop_data <- data %>% dplyr::group_by(participant, dB_ratio) %>% 
                       dplyr::summarise(prop_yanny = mean(resp),
                                        mean_RT = mean(RT),
-                                       sd = sd(RT)) %>%
-        mutate(dB_ratio = c(-60,-48,-36,-24,-12,0,12,24,36,48,60), .before = prop_yanny)
-
+                                       sd = sd(RT))
 prop_data
 ```
 
@@ -201,14 +204,14 @@ ggplot(data = prop_data, mapping = aes(dB_ratio, prop_yanny, color = participant
   theme_classic()
 ```
 
-## 3. Inferential & Summary Statistics
-### Summary Statistics
+## 4. Aggregating Data & Plotting
+
+Let's look at how the levels of the low/high frequency dB ratio affected the mean proportion of "Yanny" (vs. "Laurel") responses, across all participants/blocks/trials...
 
 ```{r}
-aggregate(resp~stim_idx,data=data, FUN=mean)
+data_agg <- aggregate(resp~dB_ratio,data=data, FUN=mean)
 
-aggregate(prop_yanny~dB_ratio,data=prop_data, FUN=mean)
-
+data_agg
 ```
 
 ```{r}
@@ -223,83 +226,91 @@ ggplot(data = prop_data, mapping = aes(dB_ratio, prop_yanny, color = participant
   theme_classic()
 ```
 
+Suppose you wanted to aggregate the data so that you saw the effect of age, sex, and years of musical experience. How would you do it?
 ```{r message=FALSE, warning=FALSE}
-prop_data_demog <- data %>% dplyr::group_by(participant, sex, age, music_yrs, stim_idx) %>% 
-                      dplyr::summarise(prop_yanny = mean(resp),
-                                       mean_RT = mean(RT),
-                                       sd = sd(RT)) %>%
-        mutate(dB_ratio = c(-60,-48,-36,-24,-12,0,12,24,36,48,60), .before = prop_yanny)
+#prop_data_demog <- data %>% ??? %>% 
+#                      ???
 ```
 
+How might you plot this?
 
 ```{r}
-aggregate(prop_yanny~dB_ratio+age, data = prop_data_demog, FUN = mean) %>%
-  
-ggplot(mapping = aes(dB_ratio, prop_yanny, color = age)) +
-  geom_point() + 
-  geom_line(mapping = aes(group = age)) +  
-  scale_y_continuous(name = "Prop. 'Yanny'", limits = c(0,1)) +
-  scale_x_discrete(name = "High/low ratio (dB)") + 
-  theme_classic()
+# ggplot(data = ???, mapping = aes(dB_ratio, prop_yanny, color = ???)) +
+#  geom_point() +
+#  geom_line(mapping = aes(group = ???)) +
+#  scale_y_continuous(name = "Prop. 'Yanny'", limits = c(0,1)) +
+#  scale_x_discrete(name = "High/low ratio (dB)") +
+#  theme_classic()
 ```
 
 
 ### Logistic Regression
 We are interested in the effects of the dB ratio level on perception of Yanny/Laurel...
+Since we're interested in the likelihood of participant choosing one of two categorical variables, we can model this as a binomial ("two-variable") logistic regression. 
 
+You can read more about logistic regression [here](https://uc-r.github.io/logistic_regression#eval), and in many other places online. 
+
+We will first go the simplest route, using only the low/high dB ratio as a predictor:
 ```{r}
-model <- glm(resp ~ stim_idx + age + sex + music_yrs, family = binomial(link='logit'), data = data)
-summary(model)
+model1 <- glm(resp ~ stim_idx, family = binomial(link='logit'), data = data)
+
+summary(model1)
 ```
 The logistic regression coefficients give the change in the log odds of the outcome for a one unit increase in the predictor variable.
-* For every one unit change in the dB ratio, the log odds of hearing Yanny (versus Laurel) increases by 1.09.
-* For a one unit increase in gpa, the log odds of being admitted to graduate school increases by 0.804.
 
-Confience Intervals
+* For every one unit change in the dB ratio, the log odds of hearing Yanny (versus Laurel) increases by 0.623.
 
-```{r}
-confint(model)
+#### Odd Ratio & Confidence Intervals
 
-```
+Usually, the results of a logistic regression are expressed as an "odds ratio." To get this, you need to basically remove the "log" part of the "log odd" interpretation of the coefficients. So, you exponentiate the coefficients!
 
-```{r}
-anova(model, test="Chisq")
-```
+To get the confidence intervals we use the ```confint()``` function...
 
 ```{r}
-# fetch coefficient
-# coef(model)
 # odds ratio
-exp(coef(model))
+exp(coef(model1))
 
-exp(cbind(odd_ratio = coef(model), confint(model)))
+exp(cbind(odd_ratio = coef(model1), confint(model1,level = .95)))
 ```
-Now we can say that for a one unit increase in the stimulus, the odds of hearing Yanny increase by a factor of about 3. Note that the odds ratio for the intercept is not generally interpreted.
+Now we can say that for a one unit increase in the stimulus, the odds of hearing Yanny increase by a factor of about 1.87. Note that the odds ratio for the intercept is not generally interpreted.
 
 Note! Mathematically, probability and odds ratio are two different things. Probability is the likelihood that an event will occur. Odds ratio is the likelihood that an event will occur in relation to the likelihood that an event will not occur: 
 
-$odds = p(event)/ p(!event)$
+$odds = p(event)/ p(!event)$, where "!" means "not"
 
 That means than an odds ratio > 1 indicates an increased likelihood of the event occuring, while an OR < 1 indicates a decreased likelihood. 
 
 Take a look again at the table we generated above. How would you read this in plain language?
 
 
+Now suppose we also want to model the other variables in our dataset, such as age, sex and years of musical experience. How would we do that? 
+
+Give it a try, then go ahead and calculate the odd ratio and confidence intervals.
+
+```{r}
+# model2 <- glm(resp ~ stim_idx + ???, family = binomial(link='logit'), data = data)
+# 
+# summary(model2)
+```
 
 ### Writing it up... 
-There's no clear format for reporting the results of a logistic regression in APA format (as far as I know), but most often you will see people report the odds ratios, CIs, and 
+There's no clear format for reporting the results of a logistic regression in APA format (as far as I know), but most often you will see people report the odds ratios and CIs, as well as indicate which coefficients/variables were significant. 
 
-The results of the binomial logistic regression indicated that there was a significant association between the factors dB ratio, age, sex, and years of musical training and the probability of hearing "Yanny" over "Laurel". The odds... 
+Thus, for the univariate logistic regression, we might write: 
 
+"The results of the binomial logistic regression indicated that there was a significant association between the low/high dB ratio and the probability of hearing "Yanny" over "Laurel". The odds ratio was 1.87, and the 95% confidence interval suggested the true value of the population odds lies between 1.69 and 2.09."
 
-
+Next time, we'll go a bit deeper into the interpretation of logistic regression results, and look at a few more ways of visualizing these data. 
 
 ## 4. Analyzing RT
 
-Now try it on your own by analyzing how ```RT``` changes as ```dB_ratio``` varies. Remember to:
+Now try it on your own by analyzing how ```RT``` changes as ```stim_idx``` varies. 
+You can follow the steps we went through together:
 
 1. aggregate the data
 2. plot the data
 3. build a linear model 
+
+As a bonus challenge: How would you report/interpret the results of the linear model? 
 
 
