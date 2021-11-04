@@ -59,7 +59,6 @@ Like so:
 # set working directory to source file location
 data_path = file.path('../data') 
 results_path = file.path('../3_results')
-stim_path = file.path('../stim')
 # the '.' means "working directory"
 # the '/' means go down one folder level
 # the '../' means go up one folder level
@@ -79,7 +78,7 @@ source('./helper_functions.R')
 Now let's load and inspect the data...
 ```{r}
 # first let's check to make sure we're in the right place:
-(files <- list.files(data_path, pattern = ".csv"))
+files <- list.files(data_path, pattern = ".csv")
 
 # Note that putting () around a command will cause it to print the result directly to the console. If you assign a variable without using (), it will silently perform the assignment, and you'd have to run the variable itself to see its contents in the console. You don't need () if you are just running a command without assigning it to anything. 
 
@@ -91,11 +90,12 @@ for (f in files) {
     breaks <- which(!is.na(incoming$block.thisRepN))
     bks <- length(breaks)
     ns <- c(breaks[1],diff(breaks))-1
-  cleaned <- incoming[!is.na(incoming$report.response),]  
+  cleaned <- incoming[!is.na(incoming$`report.response`),]  
   cleaned$block <- rep_block(bks,ns)
   data_raw <- rbind(data_raw,cleaned) 
 }
-# data_raw
+
+data_raw
 ```
 
 You'll notice we cannot immediately start analyzing this data.
@@ -146,6 +146,7 @@ data_orig <- data_raw %>% dplyr::rename(music_yrs = years.musical.experience, # 
                                     RT = RT-0.3) %>% # adjust for trial timing
                       dplyr::mutate(participant = as.factor(participant), # code as categorical variables
                                     sex = as.factor(sex))
+
 # make sure you have complete data for all observations
 nrow(data_orig)      
 nrow(data_orig %>% na.omit()) # see also dplyr::complete.cases
@@ -154,6 +155,8 @@ data <- data_orig %>%
   dplyr::mutate(dB_ratio = ordered(stim_idx, labels = c(-60,-48,-36,-24,-12,0,12,24,36,48,60))) # make a copy
 # data
 #data$participant %>% unique()
+
+write.csv(data, file.path(data_path,"data.csv"))
 ```
 
 
@@ -161,18 +164,23 @@ data <- data_orig %>%
 
 Use ```summary`` to get an overview of the data and variables...
 ```{r}
-#???(data)
+summary(data)
 ```
 What are we looking at here? Let's explore some of these variables...
 
 First let's look at the participant variables. What is the demographic breakdown of our dataset? 
 ```{r}
-#???(data$age) 
+hist(data$age) 
 
-#???(data$sex)
+age_dat <- data %>% dplyr::group_by(participant) %>% summarise(age = unique(age))
+ 
+hist(age_dat$age)
+
+ #???(data$sex)
 ```
 Here, it's counting up all the observations. How can we get it to count only the unique occurences?
-
+ 
+See above!
 ```{r}
 #???(data$age)
 
@@ -181,7 +189,7 @@ Here, it's counting up all the observations. How can we get it to count only the
 Okay, let's move on to our IV & DV's. We're going to focus on the proportion of trials in which participants responded 'Yanny'.
 
 ```{r}
-#???(data$resp)
+hist(data$resp)
 ```
 What we actually want to know is how people's responses varied based on the level of acoustic manipulation, indexed by ```stim_idx```. We also want a summary based on each participant. So: 
 
@@ -189,8 +197,9 @@ What we actually want to know is how people's responses varied based on the leve
 ```{r message=FALSE, warning=FALSE}
 prop_data <- data %>% dplyr::group_by(participant, dB_ratio) %>% 
                       dplyr::summarise(prop_yanny = mean(resp),
-                                       mean_RT = mean(RT),
-                                       sd = sd(RT))
+                                       median_RT = median(RT),
+                                       iqr_RT = IQR(RT),
+                                       mad_RT = mad(RT))
 prop_data
 ```
 
@@ -209,7 +218,7 @@ ggplot(data = prop_data, mapping = aes(dB_ratio, prop_yanny, color = participant
 Let's look at how the levels of the low/high frequency dB ratio affected the mean proportion of "Yanny" (vs. "Laurel") responses, across all participants/blocks/trials...
 
 ```{r}
-data_agg <- aggregate(resp~dB_ratio,data=data, FUN=mean)
+data_agg <- aggregate(resp ~ dB_ratio, data=data, FUN=mean)
 
 data_agg
 ```
@@ -228,8 +237,15 @@ ggplot(data = prop_data, mapping = aes(dB_ratio, prop_yanny, color = participant
 
 Suppose you wanted to aggregate the data so that you saw the effect of age, sex, and years of musical experience. How would you do it?
 ```{r message=FALSE, warning=FALSE}
-#prop_data_demog <- data %>% ??? %>% 
-#                      ???
+
+prop_data_demog <- aggregate(resp ~ sex, data = data, FUN=mean)
+
+prop_data_demo2 <- data %>% dplyr::group_by(sex, dB_ratio) %>% 
+                      dplyr::summarise(prop_yanny = mean(resp),
+                                       sd = sd(resp),
+                                       median_RT = median(RT),
+                                       iqr_RT = IQR(RT),
+                                       mad_RT = mad(RT))
 ```
 
 How might you plot this?
@@ -255,6 +271,8 @@ We will first go the simplest route, using only the low/high dB ratio as a predi
 model1 <- glm(resp ~ stim_idx, family = binomial(link='logit'), data = data)
 
 summary(model1)
+
+saveRDS(model1, file.path(results_path,"model.rds"))
 ```
 The logistic regression coefficients give the change in the log odds of the outcome for a one unit increase in the predictor variable.
 
@@ -267,10 +285,12 @@ Usually, the results of a logistic regression are expressed as an "odds ratio." 
 To get the confidence intervals we use the ```confint()``` function...
 
 ```{r}
+coef(model1)
+
 # odds ratio
 exp(coef(model1))
 
-exp(cbind(odd_ratio = coef(model1), confint(model1,level = .95)))
+exp( cbind(odd_ratio = coef(model1), confint(model1,level = .95)) )
 ```
 Now we can say that for a one unit increase in the stimulus, the odds of hearing Yanny increase by a factor of about 1.87. Note that the odds ratio for the intercept is not generally interpreted.
 
@@ -282,16 +302,42 @@ That means than an odds ratio > 1 indicates an increased likelihood of the event
 
 Take a look again at the table we generated above. How would you read this in plain language?
 
-
+### Multiple Logistic Regression
 Now suppose we also want to model the other variables in our dataset, such as age, sex and years of musical experience. How would we do that? 
 
 Give it a try, then go ahead and calculate the odd ratio and confidence intervals.
 
 ```{r}
-# model2 <- glm(resp ~ stim_idx + ???, family = binomial(link='logit'), data = data)
-# 
-# summary(model2)
+model2 <- glm(resp ~ stim_idx + age + sex + music_yrs, family = binomial(link='logit'), data = data)
+ 
+summary(model2)
+
+
+anova(model2, test = "Chisq")
 ```
+
+```{r}
+model3 <- glm(resp ~ stim_idx + age + music_yrs, family = binomial(link='logit'), data = data)
+ 
+summary(model3)
+
+anova(model3, test = "Chisq")
+
+model4 <- glm(resp ~ stim_idx + age, family = binomial(link='logit'), data = data)
+summary(model4)
+
+anova(model4, test = "Chisq")
+```
+
+#### Model Comparison
+```{r}
+anova(model1, model2, model3, test="Chisq")
+```
+
+The deviance tells us how well our model is doing against a "null" model (a model with only the intercept). It's a measure of how well our model fits the data. 
+
+Keep in mind what the chi-square test is measuring:
+$$\chi^2 = \sum \frac {(Observed - Expected)^2}{Expected}$$
 
 ### Writing it up... 
 There's no clear format for reporting the results of a logistic regression in APA format (as far as I know), but most often you will see people report the odds ratios and CIs, as well as indicate which coefficients/variables were significant. 
@@ -300,7 +346,21 @@ Thus, for the univariate logistic regression, we might write:
 
 "The results of the binomial logistic regression indicated that there was a significant association between the low/high dB ratio and the probability of hearing "Yanny" over "Laurel". The odds ratio was 1.87, and the 95% confidence interval suggested the true value of the population odds lies between 1.69 and 2.09."
 
-Next time, we'll go a bit deeper into the interpretation of logistic regression results, and look at a few more ways of visualizing these data. 
+#### Predicted Values
+Note that if we add the argument ```type = "response"``` to the function call, the ```predict()``` function returns the probability and not the log-odds. 
+```{r}
+pred <- data.frame(p_pred = predict(model4, data, type="response"), 
+                   dB_ratio = data$dB_ratio,
+                   age = data$age)  # predicted scores
+
+ggplot() +
+  geom_point(data = data, mapping = aes(dB_ratio, resp)) +
+  facet_grid(. ~ sex) + 
+  #geom_line(pred, mapping = aes(dB_ratio, p_pred, group = 1)) + 
+  scale_y_continuous(name = "Prop. 'Yanny'", limits = c(0,1)) +
+  scale_x_discrete(name = "High/low ratio (dB)") + 
+  theme_classic()
+```
 
 ## 4. Analyzing RT
 
@@ -313,4 +373,6 @@ You can follow the steps we went through together:
 
 As a bonus challenge: How would you report/interpret the results of the linear model? 
 
+# Resources
+Some info Logistic Regression in R can be found  [here](https://www.r-bloggers.com/2015/09/how-to-perform-a-logistic-regression-in-r/).
 
