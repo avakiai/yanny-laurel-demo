@@ -4,46 +4,58 @@ output:
   html_document:
     df_print: paged
 ---
-## Analysis, Continued!
+# Demo Exp. Analysis, Continued!
+
 Alright, so we've evaluated our main hypothesis in the last script (whether dB level, and also individual factors affect the proportion of times participants hear "Yanny" over "Laurel"). 
 
 Now let's look at reaction times to evaluate our secondary hypothesis, that smaller dB ratios will yield longer RTs. 
+To do this, we said
+we use a polynomial regression. However, we are also going to check out what linear regression
+has to say about this data. 
 
 First, setup the script...
-
 ### Set paths and load libraries
 ```{r}
 data_path = file.path('../data') 
 results_path = file.path('../3_results')
-stim_path = file.path('../stim')
 
 library(tidyverse)
-# Helper functions
-source('./helper_functions.R')
 ```
 
 ### Load Data
 ```{r}
-data <- read.csv(file.path(data_path,"data.csv"))
+data <- read.csv(file.path(data_path,"data.csv"), row.names = NULL, colClasses=c("participant" = "factor", "sex" = "factor"))
 ```
 
 ## 1. Reaction Times
 
 From our preregistration: 
 
-"We will exclude particularly slow and particularly fast responses, defined as median +- 3 * the median absolute deviation (MAD). However if this procedure eliminates more than 5% of observations, we will opt for a factor to multiply the MAD by, that allows for retention of at least 95% of the data."
+> "We hypothesize that the dB ratio manipulation affects the ambiguity of the stimulus. Since reaction times may index certainty, we predict that RTs will be comparatively longer for auditory tokens that are more similar to the original audio, than for auditory tokens with more extreme high/low dB ratios. "
+
 
 #### Outlier removal
+Let's find out if we have outliers based on our pre-registered criteria! What was that again?
+
+> "We will exclude particularly slow and particularly fast responses, defined as median +- 3 * the median absolute deviation (MAD). However if this procedure eliminates more than 5% of observations, we will opt for a factor to multiply the MAD by, that allows for retention of at least 95% of the data."
+
+Let's start by visualizing the distribution and summary statistics of our RT data. 
+
+Your turn: check out whether we can use our baseline criteria for outlier removal and
+maintain our threshold for data loss. 
+
+If it's too high, follow the procedure we outlined to get an acceptable cutoff. 
 ```{r}
 hist(data$RT)
 summary(data$RT)
 
-too_short <- which(data$RT<median(data$RT)-3*mad(data$RT)) 
-too_long <- which(data$RT>median(data$RT)+3*mad(data$RT))
-data2 <- data[-too_long,]
-length(data2$RT)/length(data$RT)
+too_short <- which(data$RT<median(data$RT)-3*mad(data$RT)) # which values were below the threshold
+too_long <- which(data$RT>median(data$RT)+3*mad(data$RT)) # which values were above it?
+data2 <- data[-too_long,] # the dataset without the outlier observations
+length(data2$RT)/length(data$RT) # evaluate data loss as a %
 
-#data_or <- data[???,]
+# assign the data 
+data_or <- data[-too_long,]
 
 #ggplot() +
 #   geom_histogram(data, mapping = aes(RT), fill = 'lightblue', alpha = 0.8) + 
@@ -55,16 +67,6 @@ Let's look at some summary statistics:
 ```{r}
 summary(data_or$RT)
 ```
-
-How do we expect the data to look, broken down by participant and dB level?
-```{r}
-RTdata <- data_or %>% group_by(participant, dB_ratio) %>%
-                  summarise(median = median(RT),
-                            mad = mad(RT),
-                            quant = IQR(RT))
-
-```
-
 
 #### Plot
 We'll use [geom_boxplot()](https://ggplot2.tidyverse.org/reference/geom_boxplot.html) to visualize the summary statistics of RTs for each level of our dB manipulation. 
@@ -84,13 +86,19 @@ Challenge! Use [Raincloud](https://github.com/RainCloudPlots/RainCloudPlots) plo
 Now, we're going to model the effect of dB level (or stim_idx, doesn't matter here...).
 What happens if we do a simple linear regression?
 ```{r}
-RTmodel1 <- lm(RT ~ stim_idx, data = data_or)
+RTmodel1 <- lm(RT ~ dB_ratio, data = data_or)
 
 summary(RTmodel1)
 
-plot(resid(RTmodel1))
-hist(resid(RTmodel1))
+plot(RTmodel1)
+```
+The ```plot()``` function from base R has an interesting behavior when it comes to model objects:
+it generates a bunch of diagnostic plots to help us determine if our model is a good fit
+for the data. Take a look at the plots and online - what are each of these plots telling us?
 
+#### Predicted vs. Observed Values
+As before, let's visualize the predicted values from the model against our observed values. 
+```{r}
 predicted <- data.frame(RT_pred = predict(RTmodel1, data_or), dB_ratio=data_or$dB_ratio)
 
 ggplot(data_or, aes(dB_ratio, RT)) +
@@ -103,43 +111,97 @@ ggplot(data_or, aes(dB_ratio, RT)) +
 
 
 ```
+Does this look like a good fit for the model? 
+
+A plain linear regression assumed a linear _relationship_ between the predictor and
+outcome variable. But that's not actually the relationship we observe, is it?
+
+We predicted this too! We wrote:
+
+> "To determine whether RTs are modulated by dB ratio (for the purposes of our study, an index of stimulus ambiguity), we will perform a polynomial linear regression with RTs as outcome variable and dB ratio as predictor."
 
 ### 3. Polynomial Regression
+Polynomial regression requires us to state the polynomial degree that defines the relationship
+of the predictor to the outcome variable. 
+
+Each time you add a degree, you can imagine you add another
+bend to the curve that we hope will capture the relationship between x and y, or dB ratio and responses. 
+
+Need a refresher on polynomial regression? Try [this](https://towardsdatascience.com/introduction-to-linear-regression-and-polynomial-regression-f8adc96f31cb). 
+
 So let's give it a try:
+
+In R, you can define that a predictor will be treated as a polynomial by wrapping the function
+```poly()``` around the variable. The second argument to ```poly()``` is the polynomial order.
+
+Go ahead and try this out. Visualize the predicted values, and play around with different
+orders...
 ```{r}
-#RTmodel2 <- lm(RT ~ poly(stim_idx,???), data = data_or)
-
-summary(RTmodel2)
-
-hist(resid(RTmodel2))
-
-predicted2 <- data.frame(RT_pred = predict(RTmodel2, data_or), dB_ratio=data_or$dB_ratio)
-
+# RTmodel2 <- lm(RT ~ poly(stim_idx,???), data = data_or)
+# 
+# summary(RTmodel2)
+# 
+# plot(RTmodel2)
+# 
+# predicted2 <- data.frame(RT_pred = predict(RTmodel2, data_or), dB_ratio=data_or$dB_ratio)
+# 
 # ggplot(data_or, aes(dB_ratio, RT)) +
 #   geom_pointrange(stat = "summary",
 #                fun.min = function(z) {quantile(z,0.25)},
 #                fun.max = function(z) {quantile(z,0.75)},
 #                fun = median) +
-#   geom_line(color='red',data = predicted2, aes(x=dB_ratio, y=RT_pred)) + 
-#   stat_smooth(method='lm', formula = y ~ poly(x,2), size = 1) 
+#   geom_line(color='red',data = predicted2, aes(x=dB_ratio, y=RT_pred)) +
+#   stat_smooth(method='lm', formula = y ~ poly(x,???), size = 1) #<- ACHTUNG! provide here the same order polynomial as in your model formula!
 
 
 ```
+
+As before, we're interested in the coefficients and their confidence intervals. 
+```{r}
+#coef(RTmodel2)
+
+#confint(RTmodel2, level=???)
+```
+How do we interpret these values? 
+
+
+Hint: The predicted reaction time for a given dB level is given by the following equation:
+
+$$RT = the intercept + first order polynomial* (dB level) + second order polynomial* (dB level)^2$$
+
+#### Model Performance
+
+The [Root Mean Square Error](https://www.r-bloggers.com/2021/07/how-to-calculate-root-mean-square-error-rmse-in-r/) is a useful metric to evaluate the goodness-of-fit of a linear model.
+Let's break down the phrase from the end: 
+
+- we take the error: the difference between each observed and predicted value,
+- square it,
+- take the mean of those squared errors,
+- then take the square root of that mean.
+
 
 ```{r}
-#confint(RTmodel2, level=0.95)
+# RSME for RTmodel2
+#sqrt(mean( (data_or$resp - predicted2$RT_pred)^2 ) )
+
 ```
-How do we interpret the polynomial coefficients? 
 
-The predicted reaction time for a given dB level is given by the following equation:
-
-RT = the intercept + first order polynomial* (dB level) + second order polynomial* (dB level)^2
 
 ### Model Comparison
+Think back to the last tutorial: what does model comparison using a Chi-square tell you?
 ```{r}
-anova(RTmodel1, RTmodel2, test = "Chisq")
+#anova(RTmodel1, RTmodel2, test = "Chisq")
 ```
+What is the interpretation of this result in plain English?
 
+In addition, compare the RMSE values for the models you fit:
+```{r}
+# RMSE comparison
+```
+Which has the lowest error?
+
+### Interpretation
+What effect do you think dB ratio has on RT?
 
 ### Writing it up... 
 [Values](https://www.statisticssolutions.com/reporting-statistics-in-apa-format/) to report: R^2, F value (F), degrees of freedom (numerator, denominator; in parentheses separated by a comma next to F), and significance level (p), β. Report the β and the corresponding t-test for that predictors for each predictor in the regression
@@ -170,4 +232,7 @@ predicted participants' reaction times to the Yanny/Laurel 2AFC task. The result
 
 
 # Resources
-A great reference for modelling RTs [here.](https://lindeloev.github.io/shiny-rt/#1_opinion:_three_important_types_of_parameters)
+A great reference for modelling RTs can be found [here.](https://lindeloev.github.io/shiny-rt/#1_opinion:_three_important_types_of_parameters)
+
+There are many resources for modelling with polynomial regression in R. [Here](http://www.sthda.com/english/articles/40-regression-analysis/162-nonlinear-regression-essentials-in-r-polynomial-and-spline-regression-models/), [here](https://www.section.io/engineering-education/polynomial-regression/) and here
+are just a few.
