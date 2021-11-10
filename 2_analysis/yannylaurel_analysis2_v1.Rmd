@@ -1,10 +1,10 @@
 ---
-title: "Yanny-Laurel Analysis, II"
+title: "Yanny-Laurel Analysis, Part II"
 output:
   html_document:
     df_print: paged
 ---
-# Demo Exp. Analysis, Continued!
+# Demo Experiment Analysis, Part II
 
 Alright, so we've evaluated our main hypothesis in the last script (whether dB level, and also individual factors affect the proportion of times participants hear "Yanny" over "Laurel"). 
 
